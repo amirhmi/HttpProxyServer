@@ -68,7 +68,10 @@ class Config:
 			if "post" in json_obj["HTTPInjection"]:
 				if "body" in json_obj["HTTPInjection"]["post"]:
 					self.injection_body = json_obj["HTTPInjection"]["post"]["body"]
-
+	
+class Logger:
+	def __init__(self):
+		self.enable = True
 
 class HttpRequestHeaderData:
 	def __init__(self, header):
@@ -165,7 +168,6 @@ class HttpParser:
 	def add_data(self, data_part):
 		self.data += data_part
 		if data_part.__len__() == 0:
-			print(self.empty_num)
 			self.empty_num += 1
 		self.check_complition(data_part)	
 		if self.is_header_completed():
@@ -240,7 +242,7 @@ def handle_maintained_client(local_reader, local_writer, is_reader):
 			httpParser.add_data(received)
 	if not is_reader:
 		local_writer.close()
-	#local_reader.close()
+	local_reader.close()
 
 
 def send_request(header, message, local_writer):
