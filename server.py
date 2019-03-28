@@ -88,6 +88,18 @@ class Logger:
 				f.write('\n')
 		except:
 			print("cannot write logs to file!")
+	
+	def log_header(self, header):
+		if not self.enable:
+			return
+		try:
+			with open(config.log_file, 'a+') as f:
+				f.write('-----------------------------------------\n')
+				f.write(header.to_str())
+				f.write('-----------------------------------------\n')
+				f.write('\n')
+		except:
+			print("cannot write logs to file!")
 
 class HttpRequestHeaderData:
 	def __init__(self, header):
@@ -265,11 +277,13 @@ def handle_maintained_client(local_reader, local_writer, is_reader, client_addr)
 			received = local_reader.recv(50)
 			httpParser.add_data(received)
 			if httpParser.is_header_completed() and not is_completed_before:
-				logger.log("client sent request to proxy with headers:\n" + httpParser.httpreq.to_str())
+				logger.log("client sent request to proxy with headers:\n")
+				logger.log_header(httpParser.httpreq)
 			if httpParser.is_header_completed() and not is_completed_before:
 				change_request(httpParser.httpreq, httpParser.data)
 				send_request(httpParser.httpreq, httpParser.httpreq.to_bytes() + httpParser.data, local_writer, client_addr)
-				logger.log("proxy sent response to client with headers:\n" + httpParser.httpreq.to_str())
+				logger.log("proxy sent response to client with headers:\n")
+				logger.log_header(httpParser.httpreq)
 			elif httpParser.is_header_completed():
 				send_request(httpParser.httpreq, received, local_writer, client_addr)
 		else:
@@ -284,7 +298,8 @@ def handle_maintained_client(local_reader, local_writer, is_reader, client_addr)
 			local_writer.send(received)
 			httpParser.add_data(received)
 			if httpParser.is_header_completed() and not is_completed_before:
-				logger.log("server sent response to proxy with headers:\n" + httpParser.httpresp.to_str())
+				logger.log("server sent response to proxy with headers:\n")
+				logger.log_header(httpParser.httpresp)
 	if not is_reader:
 		local_writer.close()
 	local_reader.close()
@@ -315,7 +330,8 @@ def send_request(header, message, local_writer, client_addr):
 	request_socket.connect(connection_addr)
 	logger.log("connection opened")
 	request_socket.send(message)
-	logger.log("proxy sent request to server with headers:\n" + header.to_str())
+	logger.log("proxy sent request to server with headers:\n")
+	logger.log_header(header)
 	handle_maintained_client(request_socket, local_writer, False, client_addr)
 
 def shutdown_proxy(server):
