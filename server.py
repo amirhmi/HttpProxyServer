@@ -281,6 +281,8 @@ def handle_maintained_client(local_reader, local_writer, is_reader, client_addr,
 				logger.log_header(httpParser.httpreq)
 			if httpParser.is_header_completed() and not is_completed_before:
 				change_request(httpParser.httpreq, httpParser.data)
+				if restricted(httpParser.httpreq.get_value('Host').decode("utf-8")):
+					break
 				send_request(httpParser.httpreq, httpParser.httpreq.to_bytes() + httpParser.data, local_writer, client_addr)
 				logger.log("proxy sent response to client with headers:\n")
 				logger.log_header(httpParser.httpreq)
@@ -291,7 +293,7 @@ def handle_maintained_client(local_reader, local_writer, is_reader, client_addr,
 			received = local_reader.recv(50)
 			client_used(client_addr, received.__len__())
 			if not client_have_access(client_addr):
-				#TODO local_write.write("حجم مصرفی شما به اتمام رسیده است.")
+				#TODO local_writer.send("حجم مصرفی شما به اتمام رسیده است.")
 				local_writer.close()
 				local_reader.close()
 				return
@@ -300,6 +302,17 @@ def handle_maintained_client(local_reader, local_writer, is_reader, client_addr,
 			if httpParser.is_header_completed() and not is_completed_before:
 				logger.log("server sent response to proxy with headers:\n")
 				logger.log_header(httpParser.httpresp)
+	#restriction checking
+	if is_reader and not httpParser.httpreq == None:
+		host_name = httpParser.httpreq.get_value('Host').decode("utf-8")
+		if restricted(host_name):
+			local_writer.send(b"HTTP/1.1 403 Forbidden\r\n\r\n")
+			#TODO local_writer.send("دسترسی به این آدرس مجاز نیست!") --> as body			
+			if restriction_notify(host_name):
+				send_notification("ip address " + client_addr + " tried to send following request to " + host_name + "\n" + str(httpParser.httpreq.to_bytes() + httpParser.data))
+			local_reader.close()
+			return
+	#closing sockets
 	if not is_reader:
 		local_writer.close()
 	local_reader.close()
@@ -321,11 +334,32 @@ def client_have_access(client_addr):
 			return user[2] > 0
 	return False
 
+def restricted(host_name):
+	if not config.restriction_enable:
+		return False
+	for target in config.restriction_targets:
+		if target[0] == host_name:
+			return True
+	return False
+
+def restriction_notify(host_name):
+	if not config.restriction_enable:
+		return False
+	for target in config.restriction_targets:
+		if target[0] == host_name:
+			return target[1]
+	return False
+
+def send_notification(message):
+	print (message)
+
 def send_request(header, message, local_writer, client_addr):
 	#request from browser for a server
-	request_socket = socket(AF_INET, SOCK_STREAM)
 	dest_addr = header.get_value('Host').decode("utf-8")
 	connection_addr = (dest_addr, 80)
+	if restricted(dest_addr):
+		return
+	request_socket = socket(AF_INET, SOCK_STREAM)	
 	logger.log("proxy opening connection to server " + dest_addr + "...")
 	request_socket.connect(connection_addr)
 	logger.log("connection opened")
