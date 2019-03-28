@@ -36,7 +36,7 @@ class HttpRequestHeaderData:
 		for i in range(self.header.__len__()):
 			line = self.header[i]
 			if line.split(b':')[0].decode("utf-8").strip() == key:
-				self.header.remove(i)
+				self.header.remove(line)
 				return
 	
 	def change_header (self, key, value):
@@ -183,21 +183,20 @@ def handle_response(header, body, local_writer):
 	local_writer.write(header.to_bytes() + body)
 	local_writer.close()
 
-#active_threads = []
+active_threads = []
 config = Config()
 server = socket(AF_INET, SOCK_STREAM)
 server.bind((config.proxy_ip, config.proxy_port))
 server.listen(100)
 while True:
-	#for i in range(active_threads.__len__()):
-	#	if not active_threads[i].isAlive():
-	#		active_threads[i].join()
-	#		active_threads.remove(i)
-	#		i -= 1
+	for active_thread in active_threads:
+		if not active_thread.isAlive():
+			active_thread.join()
+			active_threads.remove(active_thread)
 	client_sock, address = server.accept()
 	client_handler = threading.Thread(
         target=handle_maintained_client,
         args=(client_sock,client_sock,True)
     )
 	client_handler.start()
-	#active_threads.append(client_handler)
+	active_threads.append(client_handler)
