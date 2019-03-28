@@ -4,6 +4,7 @@ from socket import *
 import json
 import time
 import signal
+import base64
 
 class Config:
 	def __init__(self):
@@ -21,6 +22,7 @@ class Config:
 		self.accounting_users = []
 		self.injection_enable = False
 		self.injection_body = ''
+		self.admin_email = "ami.ahmadi"
 		self.read_config()
 	
 	def read_config(self):
@@ -309,7 +311,7 @@ def handle_maintained_client(local_reader, local_writer, is_reader, client_addr,
 			local_writer.send(b"HTTP/1.1 403 Forbidden\r\n\r\n")
 			#TODO local_writer.send("دسترسی به این آدرس مجاز نیست!") --> as body			
 			if restriction_notify(host_name):
-				send_notification("ip address " + client_addr + " tried to send following request to " + host_name + "\n" + str(httpParser.httpreq.to_bytes() + httpParser.data))
+				send_notification(b"ip address " + client_addr.encode("utf-8") + b" tried to send following request to " + host_name.encode("utf-8") + b"\n" + httpParser.httpreq.to_bytes() + httpParser.data)
 			local_reader.close()
 			return
 	#closing sockets
@@ -351,7 +353,37 @@ def restriction_notify(host_name):
 	return False
 
 def send_notification(message):
-	print (message)
+	print ("restriction email sent")
+	send_notification_mail (config.admin_email.encode("utf-8"), message)
+
+BUFFER_SIZE = 1024
+SMTP_PORT = 25
+
+def send_notification_mail(receiver, message):
+    mailserver = ("mail.ut.ac.ir", 25) #Fill in start #Fill in end
+    mail_server_socket = socket(AF_INET, SOCK_STREAM)
+    mail_server_socket.connect(mailserver)
+    recv = mail_server_socket.recv(BUFFER_SIZE)
+    mail_server_socket.send(b"EHLO ut.ac.ir\r\n")
+    mail_server_socket.recv(BUFFER_SIZE)
+    mail_server_socket.send(b"AUTH LOGIN\r\n")
+    mail_server_socket.recv(BUFFER_SIZE)
+    mail_server_socket.send(b"YW1pLmFobWFkaQ==\r\n")
+    mail_server_socket.recv(BUFFER_SIZE)
+    mail_server_socket.send(b"QEFtaXJobWkxMjM=\r\n")
+    mail_server_socket.recv(BUFFER_SIZE)
+    mail_server_socket.send(b"MAIL FROM:<ami.ahmadi@ut.ac.ir>\r\n")
+    mail_server_socket.recv(BUFFER_SIZE)
+    mail_server_socket.send(b"RCPT TO:<" + receiver + b"@ut.ac.ir>\r\n")
+    mail_server_socket.recv(BUFFER_SIZE)
+    mail_server_socket.send(b"DATA\r\n")
+    mail_server_socket.recv(BUFFER_SIZE)
+    mail_server_socket.send(b"Subject: Proxy Notification\r\n\r\n" )
+    mail_server_socket.send(message + b"\r\n.\r\n")
+    mail_server_socket.recv(BUFFER_SIZE)
+    mail_server_socket.send(b"QUIT\r\n")
+    mail_server_socket.recv(BUFFER_SIZE)
+    mail_server_socket.close()
 
 def send_request(header, message, local_writer, client_addr):
 	#request from browser for a server
