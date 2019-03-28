@@ -269,7 +269,7 @@ def change_request(header, body):
 	if config.privacy_enable:
 		header.change_header('User-Agent', config.privacy_user_agent)
 
-def handle_maintained_client(local_reader, local_writer, is_reader, client_addr):
+def handle_maintained_client(local_reader, local_writer, is_reader, client_addr, host, context):
 	httpParser = HttpParser()
 	while not httpParser.is_complete:
 		if is_reader:
@@ -324,15 +324,15 @@ def client_have_access(client_addr):
 def send_request(header, message, local_writer, client_addr):
 	#request from browser for a server
 	request_socket = socket(AF_INET, SOCK_STREAM)
-	destination_ip = header.get_value('Host').decode("utf-8")
-	connection_addr = (destination_ip, 80)
-	logger.log("proxy opening connection to server " + destination_ip + "...")
+	dest_addr = header.get_value('Host').decode("utf-8")
+	connection_addr = (dest_addr, 80)
+	logger.log("proxy opening connection to server " + dest_addr + "...")
 	request_socket.connect(connection_addr)
 	logger.log("connection opened")
 	request_socket.send(message)
 	logger.log("proxy sent request to server with headers:\n")
 	logger.log_header(header)
-	handle_maintained_client(request_socket, local_writer, False, client_addr)
+	handle_maintained_client(request_socket, local_writer, False, client_addr, dest_addr, header.address)
 
 def shutdown_proxy(server):
 	server.shutdown
@@ -365,7 +365,7 @@ while True:
 		continue
 	client_handler = threading.Thread(
         target=handle_maintained_client,
-        args=(client_sock,client_sock,True,address[0])
+        args=(client_sock,client_sock,True,address[0], None, None)
     )
 	client_handler.start()
 	active_threads.append(client_handler)
