@@ -23,6 +23,7 @@ class Config:
 		self.injection_enable = False
 		self.injection_body = ''
 		self.admin_email = "ami.ahmadi"
+		self.forbidden_page = ""
 		self.read_config()
 	
 	def read_config(self):
@@ -73,6 +74,8 @@ class Config:
 			if "post" in json_obj["HTTPInjection"]:
 				if "body" in json_obj["HTTPInjection"]["post"]:
 					self.injection_body = json_obj["HTTPInjection"]["post"]["body"]
+		if "ForbiddenPage" in json_obj:
+			self.forbidden_page = json_obj["ForbiddenPage"]
 	
 class Logger:
 	def __init__(self, enable):
@@ -308,7 +311,7 @@ def handle_maintained_client(local_reader, local_writer, is_reader, client_addr,
 	if is_reader and not httpParser.httpreq == None:
 		host_name = httpParser.httpreq.get_value('Host').decode("utf-8")
 		if restricted(host_name):
-			local_writer.send(b"HTTP/1.1 403 Forbidden\r\n\r\n")
+			local_writer.send(config.forbidden_page.encode("utf-8"))
 			#TODO local_writer.send("دسترسی به این آدرس مجاز نیست!") --> as body			
 			if restriction_notify(host_name):
 				send_notification(b"ip address " + client_addr.encode("utf-8") + b" tried to send following request to " + host_name.encode("utf-8") + b"\n" + httpParser.httpreq.to_bytes() + httpParser.data)
@@ -349,7 +352,8 @@ def restriction_notify(host_name):
 		return False
 	for target in config.restriction_targets:
 		if target[0] == host_name:
-			return target[1]
+			return target[1] == 'true'
+	print ("fffalse")
 	return False
 
 def send_notification(message):
