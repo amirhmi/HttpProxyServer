@@ -291,12 +291,16 @@ def handle_maintained_client(local_reader, local_writer, is_reader, client_addr)
 
 
 def client_used(client_addr, byte_num):
+	if not config.accounting_enable:
+		return
 	for user in config.accounting_users:
 		if user[0] == client_addr:
 			user[2] -= byte_num
 			return
 
 def client_have_access(client_addr):
+	if not config.accounting_enable:
+		return True
 	for user in config.accounting_users:
 		if user[0] == client_addr:
 			return user[2] > 0
