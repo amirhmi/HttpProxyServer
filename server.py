@@ -64,7 +64,7 @@ class Config:
 				targets = json_obj["accounting"]["users"]
 				for target in targets:
 					if "IP" in target and "volume" in target:
-						self.accounting_users.append([target["IP"], target["volume"]])
+						self.accounting_users.append([target["IP"], target["volume"], int(target["volume"])])
 		if "HTTPInjection" in json_obj:
 			if "enable" in json_obj["HTTPInjection"]:
 				self.injection_enable = json_obj["HTTPInjection"]["enable"]
@@ -257,9 +257,6 @@ def change_request(header, body):
 	if config.privacy_enable:
 		header.change_header('User-Agent', config.privacy_user_agent)
 
-# def handle_client(reader, writer):
-# 	loop.create_task(handle_maintained_client(reader, writer, True))
-
 def handle_maintained_client(local_reader, local_writer, is_reader, client_addr):
 	httpParser = HttpParser()
 	while not httpParser.is_complete:
@@ -278,6 +275,12 @@ def handle_maintained_client(local_reader, local_writer, is_reader, client_addr)
 		else:
 			is_completed_before = httpParser.is_header_completed()
 			received = local_reader.recv(50)
+			client_used(client_addr, received.__len__())
+			if not client_have_access(client_addr):
+				#TODO local_write.write("حجم مصرفی شما به اتمام رسیده است.")
+				local_writer.close()
+				local_reader.close()
+				return
 			local_writer.send(received)
 			httpParser.add_data(received)
 			if httpParser.is_header_completed() and not is_completed_before:
@@ -286,6 +289,18 @@ def handle_maintained_client(local_reader, local_writer, is_reader, client_addr)
 		local_writer.close()
 	local_reader.close()
 
+
+def client_used(client_addr, byte_num):
+	for user in config.accounting_users:
+		if user[0] == client_addr:
+			user[2] -= byte_num
+			return
+
+def client_have_access(client_addr):
+	for user in config.accounting_users:
+		if user[0] == client_addr:
+			return user[2] > 0
+	return False
 
 def send_request(header, message, local_writer, client_addr):
 	#request from browser for a server
