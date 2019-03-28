@@ -64,7 +64,7 @@ class Config:
 				targets = json_obj["accounting"]["users"]
 				for target in targets:
 					if "IP" in target and "volume" in target:
-						self.restriction_targets.append([target["IP"], target["volume"]])
+						self.accounting_users.append([target["IP"], target["volume"]])
 		if "HTTPInjection" in json_obj:
 			if "enable" in json_obj["HTTPInjection"]:
 				self.injection_enable = json_obj["HTTPInjection"]["enable"]
@@ -260,21 +260,21 @@ def change_request(header, body):
 # def handle_client(reader, writer):
 # 	loop.create_task(handle_maintained_client(reader, writer, True))
 
-def handle_maintained_client(local_reader, local_writer, is_reader):
+def handle_maintained_client(local_reader, local_writer, is_reader, client_addr):
 	httpParser = HttpParser()
 	while not httpParser.is_complete:
 		if is_reader:
 			is_completed_before = httpParser.is_header_completed()
 			received = local_reader.recv(50)
-			if httpParser.is_header_completed() and not is_completed_before:
-				logger.log("client sent request to proxy with headers:\n" + httpParser.httpreq.to_str())
 			httpParser.add_data(received)
 			if httpParser.is_header_completed() and not is_completed_before:
+				logger.log("client sent request to proxy with headers:\n" + httpParser.httpreq.to_str())
+			if httpParser.is_header_completed() and not is_completed_before:
 				change_request(httpParser.httpreq, httpParser.data)
-				send_request(httpParser.httpreq, httpParser.httpreq.to_bytes() + httpParser.data, local_writer)
+				send_request(httpParser.httpreq, httpParser.httpreq.to_bytes() + httpParser.data, local_writer, client_addr)
 				logger.log("proxy sent response to client with headers:\n" + httpParser.httpreq.to_str())
 			elif httpParser.is_header_completed():
-				send_request(httpParser.httpreq, received, local_writer)
+				send_request(httpParser.httpreq, received, local_writer, client_addr)
 		else:
 			is_completed_before = httpParser.is_header_completed()
 			received = local_reader.recv(50)
@@ -287,7 +287,7 @@ def handle_maintained_client(local_reader, local_writer, is_reader):
 	local_reader.close()
 
 
-def send_request(header, message, local_writer):
+def send_request(header, message, local_writer, client_addr):
 	#request from browser for a server
 	request_socket = socket(AF_INET, SOCK_STREAM)
 	destination_ip = header.get_value('Host').decode("utf-8")
@@ -297,7 +297,7 @@ def send_request(header, message, local_writer):
 	logger.log("connection opened")
 	request_socket.send(message)
 	logger.log("proxy sent request to server with headers:\n" + header.to_str())
-	handle_maintained_client(request_socket, local_writer, False)
+	handle_maintained_client(request_socket, local_writer, False, client_addr)
 
 def shutdown_proxy(server):
 	server.shutdown
@@ -320,10 +320,17 @@ while True:
 			active_thread.join()
 			active_threads.remove(active_thread)
 	client_sock, address = server.accept()
-	logger.log("accepted a request from client")
+	logger.log("accepted a request from client with address: " + str(address))
+	user_accepted = False
+	for user in config.accounting_users:
+		if user[0] == address[0]:
+			user_accepted = True
+	if not user_accepted:
+		client_sock.close()
+		continue
 	client_handler = threading.Thread(
         target=handle_maintained_client,
-        args=(client_sock,client_sock,True)
+        args=(client_sock,client_sock,True,address[0])
     )
 	client_handler.start()
 	active_threads.append(client_handler)
