@@ -103,8 +103,7 @@ class HttpParser:
 	def add_data(self, data_part):
 		self.data += data_part
 		if self.is_header_completed():
-			if self.data.__len__() >= self.content_length:
-				self.is_complete = True
+			self.check_complete(data_part)
 			return
 		while b'\r\n' in self.data:
 			splited = self.data.split(b'\r\n', 1)
@@ -112,8 +111,14 @@ class HttpParser:
 			self.data = splited[1]
 			if self.is_header_completed():
 				self.decodeHeader()
+		self.check_complete(data_part)
+
+	def check_complete(self, data_part):
 		if self.is_header_completed():
-			if self.data.__len__() >= self.content_length:
+			if self.content_length == 0 and not self.is_request:
+				if data_part.__len__() == 0:
+					self.is_complete = True
+			elif self.data.__len__() >= self.content_length:
 				self.is_complete = True
 
 	def is_header_completed(self):
@@ -145,15 +150,12 @@ def change_request(header, body):
 	header.remove_header('Proxy-Connection')
 	header.change_header('User-Agent', config.user_agent)
 
-# def handle_client(reader, writer):
-# 	loop.create_task(handle_maintained_client(reader, writer, True))
-
 def handle_maintained_client(local_reader, local_writer, is_reader):
 	httpParser = HttpParser()
 	while not httpParser.is_complete:
 		if is_reader:
 			is_completed_before = httpParser.is_header_completed()
-			received = local_reader.recv(10000)
+			received = local_reader.recv(1024)
 			httpParser.add_data(received)
 			if httpParser.is_header_completed() and not is_completed_before:
 				change_request(httpParser.httpreq, httpParser.data)
@@ -161,14 +163,14 @@ def handle_maintained_client(local_reader, local_writer, is_reader):
 			elif httpParser.is_header_completed():
 				send_request(httpParser.httpreq, received, local_writer)
 		else:
-			received = local_reader.recv(10000)
-			local_writer.send(received)
+			received = local_reader.recv(1024)
+			httpParser.add_data(received)
 			if received.__len__() == 0:
 				continue
-			httpParser.add_data(received)
+			local_writer.send(received)
 	if not is_reader:
 		local_writer.close()
-	#local_reader.close()
+	local_reader.close()
 
 
 def send_request(header, message, local_writer):
@@ -180,23 +182,17 @@ def send_request(header, message, local_writer):
 	handle_maintained_client(request_socket, local_writer, False)
 
 def handle_response(header, body, local_writer):
-	local_writer.write(header.to_bytes() + body)
+	local_writer.send(header.to_bytes() + body)
 	local_writer.close()
 
-active_threads = []
 config = Config()
 server = socket(AF_INET, SOCK_STREAM)
 server.bind((config.proxy_ip, config.proxy_port))
 server.listen(100)
 while True:
-	for active_thread in active_threads:
-		if not active_thread.isAlive():
-			active_thread.join()
-			active_threads.remove(active_thread)
 	client_sock, address = server.accept()
 	client_handler = threading.Thread(
         target=handle_maintained_client,
         args=(client_sock,client_sock,True)
     )
 	client_handler.start()
-	active_threads.append(client_handler)
