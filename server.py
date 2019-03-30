@@ -6,6 +6,9 @@ import signal
 import sys
 import zlib
 import datetime
+import time
+from time import mktime
+from wsgiref.handlers import format_date_time
 import email.utils as eut
 from bs4 import BeautifulSoup
 
@@ -153,6 +156,10 @@ class HttpRequestHeaderData:
 			ret += line + b'\r\n'
 		return ret
 
+	def to_modified_since_bytes(self):
+		self.method = b'HEAD'
+		return self.to_bytes()
+
 	def to_str(self):
 		ret = ''
 		ret += self.method.decode("utf-8") + ' '
@@ -207,11 +214,12 @@ class HttpResponsetHeaderData:
 		return ret
 
 class CacheObject:
-	def __init__(self, host, context, expire, data, header):
+	def __init__(self, host, context, expire, get_date, data, header):
 		self.address = host + context
 		self.header = header
 		self.data = data
 		self.expire = expire
+		self.get_date = get_date
 	
 	def get_cached_data(self, data):
 		pass
@@ -335,7 +343,36 @@ def inject_navbar(httpParser):
 	httpParser.index_content = header + b'\r\n\r\n' + html
 
 def parse_html_date(date):
-    return datetime.datetime(*eut.parsedate(date)[:6])
+	date = date.decode('utf-8')
+	return datetime.datetime(*eut.parsedate(date)[:6]).timestamp()
+
+def get_cached_data(cache_object, httpParser):
+	final_data = b''
+	if not cache_object.expire == None and int(parse_html_date(cache_object.expire)) > int(time.time()):
+		final_data = cache_object.header + cache_object.data
+	else:
+		httpParser.httpreq.header.insert(-1, b'If-Modified-Since: ' + cache_object.get_date)
+		header = httpParser.httpreq.to_modified_since_bytes()
+		host = httpParser.httpreq.get_value('Host').decode("utf-8")
+		modified_data = send_if_modified_since(header, host)
+		if not modified_data == None:
+			final_data = modified_data
+		else :
+			final_data = cache_object.header + cache_object.data
+	return final_data
+
+def send_if_modified_since(header, host):
+	request_socket = socket(AF_INET, SOCK_STREAM)
+	connection_addr = (host, 80)
+	logger.log("proxy opening connection to server " + host + "...")
+	request_socket.connect(connection_addr)
+	logger.log("connection opened")
+	request_socket.send(header)
+	logger.log("proxy sent if-modified-since request to server with headers:\n")
+	logger.log_header(header)
+	status_data = request_socket.recv(20)
+	if b'304' in status_data:
+		return None
 
 def handle_request(local_reader, local_writer, client_addr):
 	httpParser = HttpParser()
@@ -355,7 +392,7 @@ def handle_request(local_reader, local_writer, client_addr):
 			found, cache_object = cache.find_and_get_data(host, context)
 			if found:
 				print("found " + host + " " + context)
-				final_data = cache_object.header + cache_object.data
+				final_data = get_cached_data(cache_object, httpParser)
 				local_writer.send(final_data)
 				return
 
@@ -399,12 +436,11 @@ def handle_response(local_reader, local_writer, client_addr, host, context):
 	#####
 	if(config.cache_enable == True and not httpParser.httpresp == None):
 		if not httpParser.httpresp.get_value("Pragma") == "no-cache":
-			expire = httpParser.httpresp.get_value("Expires")
-			expire_date = None
-			if expire != None:
-				expire = expire.decode('utf-8')
-				expire_date = parse_html_date(expire)
-			cache_object = CacheObject(host, context.decode("utf-8"), expire_date, httpParser.data, httpParser.httpresp.to_bytes())
+			expire_date = httpParser.httpresp.get_value("Expires")
+			now = datetime.datetime.now()
+			stamp = mktime(now.timetuple())
+			get_date = format_date_time(stamp).encode('utf-8')
+			cache_object = CacheObject(host, context.decode("utf-8"), expire_date, get_date, httpParser.data, httpParser.httpresp.to_bytes())
 			cache.add_update_data(cache_object)
 			print("added " + host + " " + context.decode("utf-8") + " " + str(cache.data.__len__()))
 	#####
