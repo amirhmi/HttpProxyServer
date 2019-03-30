@@ -5,6 +5,8 @@ import json
 import signal
 import sys
 import zlib
+import datetime
+import email.utils as eut
 from bs4 import BeautifulSoup
 
 
@@ -204,6 +206,44 @@ class HttpResponsetHeaderData:
 			ret += line.decode("utf-8") + '\n'
 		return ret
 
+class CacheObject:
+	def __init__(self, host, context, expire, data, header):
+		self.address = host + context
+		self.header = header
+		self.data = data
+		self.expire = expire
+	
+	def get_cached_data(self, data):
+		pass
+
+class Cache:
+	def __init__(self, max):
+		self.data = []
+		self.max = max
+	
+	def is_full(self):
+		return data.__len__() >= self.max
+	
+	def add_update_data(self, data):
+		for d in self.data:
+			if d.address == data.address:
+				self.data.remove(d)
+		if self.data.__len__() < self.max:
+			self.data.append(data)
+		else:
+			self.data.pop(0)
+			self.data.append(data)
+	
+	def find_and_get_data(self, host, context):
+		address = host + context
+		for d in self.data:
+			if d.address == address:
+				self.data.remove(d)
+				self.data.append(d)
+				return True, d
+		return False, None
+	
+
 class HttpParser:
 	def __init__(self):
 		self.data = b''
@@ -294,17 +334,33 @@ def inject_navbar(httpParser):
 		html = gzip_compress.compress(html.encode('utf-8')) + gzip_compress.flush()
 	httpParser.index_content = header + b'\r\n\r\n' + html
 
-def handle_maintained_client(local_reader, local_writer, is_reader, client_addr, host, context):
+def parse_html_date(date):
+    return datetime.datetime(*eut.parsedate(date)[:6])
+
+def handle_request(local_reader, local_writer, client_addr):
 	httpParser = HttpParser()
 	while not httpParser.is_complete:
 		is_completed_before = httpParser.is_header_completed()
 		received = local_reader.recv(50)
 		httpParser.add_data(received)
+		#####
 		if httpParser.is_header_completed() and not is_completed_before:
 			logger.log("client sent request to proxy with headers:\n")
 			logger.log_header(httpParser.httpreq)
-		if httpParser.is_header_completed() and not is_completed_before:
 			change_request(httpParser.httpreq, httpParser.data)
+
+		if config.cache_enable and httpParser.is_header_completed():
+			host = httpParser.httpreq.get_value('Host').decode("utf-8")
+			context = httpParser.httpreq.address.decode("utf-8")
+			found, cache_object = cache.find_and_get_data(host, context)
+			if found:
+				print("found " + host + " " + context)
+				final_data = cache_object.header + cache_object.data
+				local_writer.send(final_data)
+				return
+
+		#####
+		if httpParser.is_header_completed() and not is_completed_before:
 			send_request(httpParser.httpreq, httpParser.httpreq.to_bytes() + httpParser.data, local_writer, client_addr)
 			logger.log("proxy sent response to client with headers:\n")
 			logger.log_header(httpParser.httpreq)
@@ -339,6 +395,19 @@ def handle_response(local_reader, local_writer, client_addr, host, context):
 		if httpParser.is_header_completed() and not is_completed_before:
 			logger.log("server sent response to proxy with headers:\n")
 			logger.log_header(httpParser.httpresp)
+	
+	#####
+	if(config.cache_enable == True and not httpParser.httpresp == None):
+		if not httpParser.httpresp.get_value("Pragma") == "no-cache":
+			expire = httpParser.httpresp.get_value("Expires")
+			expire_date = None
+			if expire != None:
+				expire = expire.decode('utf-8')
+				expire_date = parse_html_date(expire)
+			cache_object = CacheObject(host, context.decode("utf-8"), expire_date, httpParser.data, httpParser.httpresp.to_bytes())
+			cache.add_update_data(cache_object)
+			print("added " + host + " " + context.decode("utf-8") + " " + str(cache.data.__len__()))
+	#####
 
 	if config.injection_enable and (context == b'/' or context == b'/index.html' or context == b'/index.html#home'):
 		inject_navbar(httpParser)
@@ -381,6 +450,7 @@ def shutdown_proxy(server):
 
 active_threads = []
 config = Config()
+cache = Cache(config.cache_size)
 logger = Logger(config.log_enable)
 logger.log("proxy launched")
 logger.log("creating server socket...")
@@ -410,8 +480,8 @@ while True:
 		client_sock.close()
 		continue
 	client_handler = threading.Thread(
-        target=handle_maintained_client,
-        args=(client_sock,client_sock,True,address[0], None, None)
+        target=handle_request,
+        args=(client_sock,client_sock,address[0])
     )
 	client_handler.start()
 	active_threads.append(client_handler)
