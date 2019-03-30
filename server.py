@@ -2,8 +2,11 @@ import asyncio
 import threading
 from socket import *
 import json
-import time
 import signal
+import sys
+import zlib
+from bs4 import BeautifulSoup
+
 
 class Config:
 	def __init__(self):
@@ -212,6 +215,7 @@ class HttpParser:
 		self.content_length = 0
 		self.is_complete = False
 		self.empty_num = 0
+		self.index_content = b''
 
 	def add_data(self, data_part):
 		self.data += data_part
@@ -268,41 +272,78 @@ def change_request(header, body):
 	header.remove_header('Proxy-Connection')
 	if config.privacy_enable:
 		header.change_header('User-Agent', config.privacy_user_agent)
+		
+def inject_navbar(httpParser):
+	if httpParser.index_content.split(b'\r\n\r\n').__len__() < 2:
+		return
+	header, html = httpParser.index_content.split(b'\r\n\r\n', 1)
+	decompress = True
+	try:
+		html = zlib.decompress(httpParser.index_content, 16+zlib.MAX_WBITS)
+	except:
+		decompress = False
+	navbar = BeautifulSoup("<div style=\"height:40px; background-color:rgb(18, 68, 68); direction: rtl; color: white; text-align: center; padding: 5px;\">" + config.injection_body + "</div>", features="html.parser")
+	html = BeautifulSoup(html, features="html.parser")
+	gzip_compress = zlib.compressobj(9, zlib.DEFLATED, zlib.MAX_WBITS | 16)
+	if not html.body == None:
+		html.body.insert(0, navbar)
+		html = html.encode('utf-8')
+	else :
+		html = httpParser.index_content.split(b'\r\n\r\n', 1)[1]
+	if decompress:
+		html = gzip_compress.compress(html.encode('utf-8')) + gzip_compress.flush()
+	httpParser.index_content = header + b'\r\n\r\n' + html
 
 def handle_maintained_client(local_reader, local_writer, is_reader, client_addr, host, context):
 	httpParser = HttpParser()
 	while not httpParser.is_complete:
-		if is_reader:
-			is_completed_before = httpParser.is_header_completed()
-			received = local_reader.recv(50)
-			httpParser.add_data(received)
-			if httpParser.is_header_completed() and not is_completed_before:
-				logger.log("client sent request to proxy with headers:\n")
-				logger.log_header(httpParser.httpreq)
-			if httpParser.is_header_completed() and not is_completed_before:
-				change_request(httpParser.httpreq, httpParser.data)
-				send_request(httpParser.httpreq, httpParser.httpreq.to_bytes() + httpParser.data, local_writer, client_addr)
-				logger.log("proxy sent response to client with headers:\n")
-				logger.log_header(httpParser.httpreq)
-			elif httpParser.is_header_completed():
-				send_request(httpParser.httpreq, received, local_writer, client_addr)
-		else:
-			is_completed_before = httpParser.is_header_completed()
-			received = local_reader.recv(50)
-			client_used(client_addr, received.__len__())
-			if not client_have_access(client_addr):
-				#TODO local_write.write("حجم مصرفی شما به اتمام رسیده است.")
-				local_writer.close()
-				local_reader.close()
-				return
-			local_writer.send(received)
-			httpParser.add_data(received)
-			if httpParser.is_header_completed() and not is_completed_before:
-				logger.log("server sent response to proxy with headers:\n")
-				logger.log_header(httpParser.httpresp)
-	if not is_reader:
-		local_writer.close()
+		is_completed_before = httpParser.is_header_completed()
+		received = local_reader.recv(50)
+		httpParser.add_data(received)
+		if httpParser.is_header_completed() and not is_completed_before:
+			logger.log("client sent request to proxy with headers:\n")
+			logger.log_header(httpParser.httpreq)
+		if httpParser.is_header_completed() and not is_completed_before:
+			change_request(httpParser.httpreq, httpParser.data)
+			send_request(httpParser.httpreq, httpParser.httpreq.to_bytes() + httpParser.data, local_writer, client_addr)
+			logger.log("proxy sent response to client with headers:\n")
+			logger.log_header(httpParser.httpreq)
+		elif httpParser.is_header_completed():
+			send_request(httpParser.httpreq, received, local_writer, client_addr)
 	local_reader.close()
+
+def handle_response(local_reader, local_writer, client_addr, host, context):
+	httpParser = HttpParser()
+	received = b''
+	local_reader.settimeout(2)
+	while not httpParser.is_complete:
+		is_completed_before = httpParser.is_header_completed()
+		try:
+			received = local_reader.recv(50)
+		except:
+			break
+		client_used(client_addr, received.__len__())
+		if not client_have_access(client_addr):
+			#TODO local_write.send("حجم مصرفی شما به اتمام رسیده است.")
+			local_writer.close()
+			local_reader.close()
+			return
+
+		if context == b'/' or context == b'/index.html' or context == b'/index.html#home':
+			httpParser.index_content += received
+		else:
+			local_writer.send(received)
+		
+		httpParser.add_data(received)
+
+		if httpParser.is_header_completed() and not is_completed_before:
+			logger.log("server sent response to proxy with headers:\n")
+			logger.log_header(httpParser.httpresp)
+
+	if config.injection_enable and (context == b'/' or context == b'/index.html' or context == b'/index.html#home'):
+		inject_navbar(httpParser)
+		local_writer.send(httpParser.index_content)
+	local_writer.close()
 
 
 def client_used(client_addr, byte_num):
@@ -332,7 +373,7 @@ def send_request(header, message, local_writer, client_addr):
 	request_socket.send(message)
 	logger.log("proxy sent request to server with headers:\n")
 	logger.log_header(header)
-	handle_maintained_client(request_socket, local_writer, False, client_addr, dest_addr, header.address)
+	handle_response(request_socket, local_writer, client_addr, dest_addr, header.address)
 
 def shutdown_proxy(server):
 	server.shutdown
@@ -349,6 +390,11 @@ server.bind((config.proxy_ip, config.proxy_port))
 server.listen(8)
 logger.log("listening to incoming requests...")
 signal.signal(signal.SIGINT, shutdown_proxy)
+def signal_handler(signal, frame):
+	server.shutdown(SHUT_RDWR)
+	server.close()
+	sys.exit(0)
+signal.signal(signal.SIGINT, signal_handler)
 while True:
 	for active_thread in active_threads:
 		if not active_thread.isAlive():
