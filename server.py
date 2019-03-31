@@ -156,9 +156,8 @@ class HttpRequestHeaderData:
 			ret += line + b'\r\n'
 		return ret
 
-	def to_modified_since_bytes(self):
-		self.method = b'HEAD'
-		return self.to_bytes()
+	def change_method(self, method):
+		self.method = method
 
 	def to_str(self):
 		ret = ''
@@ -301,8 +300,6 @@ class HttpParser:
 			self.is_request = True
 			self.httpreq = HttpRequestHeaderData(self.parts)
 			self.content_length = self.httpreq.get_value("Content-Length")
-			if self.httpreq.method == b'HEAD':
-				self.is_complete = True
 		else:
 			self.httpresp = HttpResponsetHeaderData(self.parts)
 			self.content_length = self.httpresp.get_value("Content-Length")
@@ -346,33 +343,49 @@ def parse_html_date(date):
 	date = date.decode('utf-8')
 	return datetime.datetime(*eut.parsedate(date)[:6]).timestamp()
 
-def get_cached_data(cache_object, httpParser):
+def get_cached_data(cache_object, httpParser, context):
 	final_data = b''
 	if not cache_object.expire == None and int(parse_html_date(cache_object.expire)) > int(time.time()):
 		final_data = cache_object.header + cache_object.data
 	else:
 		httpParser.httpreq.header.insert(-1, b'If-Modified-Since: ' + cache_object.get_date)
-		header = httpParser.httpreq.to_modified_since_bytes()
 		host = httpParser.httpreq.get_value('Host').decode("utf-8")
-		modified_data = send_if_modified_since(header, host)
+		modified_data = send_if_modified_since(httpParser, host, context)
 		if not modified_data == None:
 			final_data = modified_data
 		else :
 			final_data = cache_object.header + cache_object.data
 	return final_data
 
-def send_if_modified_since(header, host):
+def send_if_modified_since(httpParser, host, context):
 	request_socket = socket(AF_INET, SOCK_STREAM)
 	connection_addr = (host, 80)
 	logger.log("proxy opening connection to server " + host + "...")
 	request_socket.connect(connection_addr)
 	logger.log("connection opened")
+	httpParser.httpreq.change_method(b'HEAD')
+	header = httpParser.httpreq.to_bytes()
 	request_socket.send(header)
 	logger.log("proxy sent if-modified-since request to server with headers:\n")
 	logger.log_header(header)
 	status_data = request_socket.recv(20)
+	request_socket.close()
 	if b'304' in status_data:
 		return None
+	else:
+		request_socket = socket(AF_INET, SOCK_STREAM)
+		connection_addr = (host, 80)
+		logger.log("proxy opening connection to server " + host + "...")
+		request_socket.connect(connection_addr)
+		logger.log("connection opened")
+		httpParser.httpreq.change_method(b'GET')
+		httpParser.httpreq.remove_header("If-Modified-Since")
+		header = httpParser.httpreq.to_bytes()
+		request_socket.send(header)
+		logger.log("proxy sent request to server with headers:\n")
+		logger.log_header(header)
+		ret = handle_response(request_socket, None, host, host, context, True)
+		return ret
 
 def handle_request(local_reader, local_writer, client_addr):
 	httpParser = HttpParser()
@@ -392,7 +405,7 @@ def handle_request(local_reader, local_writer, client_addr):
 			found, cache_object = cache.find_and_get_data(host, context)
 			if found:
 				print("found " + host + " " + context)
-				final_data = get_cached_data(cache_object, httpParser)
+				final_data = get_cached_data(cache_object, httpParser, context)
 				local_writer.send(final_data)
 				return
 
@@ -405,7 +418,7 @@ def handle_request(local_reader, local_writer, client_addr):
 			send_request(httpParser.httpreq, received, local_writer, client_addr)
 	local_reader.close()
 
-def handle_response(local_reader, local_writer, client_addr, host, context):
+def handle_response(local_reader, local_writer, client_addr, host, context, if_modify=False):
 	httpParser = HttpParser()
 	received = b''
 	local_reader.settimeout(2)
@@ -416,16 +429,18 @@ def handle_response(local_reader, local_writer, client_addr, host, context):
 		except:
 			break
 		client_used(client_addr, received.__len__())
-		if not client_have_access(client_addr):
+		if not client_have_access(client_addr) and not if_modify:
 			#TODO local_write.send("حجم مصرفی شما به اتمام رسیده است.")
-			local_writer.close()
+			if not if_modify:
+				local_writer.close()
 			local_reader.close()
 			return
-
-		if context == b'/' or context == b'/index.html' or context == b'/index.html#home':
+		
+		if context == b'/' or context == b'/index.html' or context == b'/index.html#home' or if_modify:
 			httpParser.index_content += received
 		else:
-			local_writer.send(received)
+			if not if_modify:
+				local_writer.send(received)
 		
 		httpParser.add_data(received)
 
@@ -434,7 +449,7 @@ def handle_response(local_reader, local_writer, client_addr, host, context):
 			logger.log_header(httpParser.httpresp)
 	
 	#####
-	if(config.cache_enable == True and not httpParser.httpresp == None):
+	if(if_modify == False and config.cache_enable == True and not httpParser.httpresp == None):
 		if not httpParser.httpresp.get_value("Pragma") == "no-cache":
 			expire_date = httpParser.httpresp.get_value("Expires")
 			now = datetime.datetime.now()
@@ -444,11 +459,14 @@ def handle_response(local_reader, local_writer, client_addr, host, context):
 			cache.add_update_data(cache_object)
 			print("added " + host + " " + context.decode("utf-8") + " " + str(cache.data.__len__()))
 	#####
-
 	if config.injection_enable and (context == b'/' or context == b'/index.html' or context == b'/index.html#home'):
 		inject_navbar(httpParser)
-		local_writer.send(httpParser.index_content)
-	local_writer.close()
+		if not if_modify:
+			local_writer.send(httpParser.index_content)
+	if not if_modify:
+		local_writer.close()
+	else:
+		return httpParser.index_content
 
 
 def client_used(client_addr, byte_num):
