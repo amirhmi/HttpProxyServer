@@ -31,11 +31,11 @@
   },
   
 	"accounting":{
-    "enable": true,
+    "enable": false,
 		"users":[
 			{
 				"IP": "127.0.0.1",
-				"volume":"80000000" 
+				"volume":"8000" 
 			}
 		]
 	},
@@ -45,5 +45,7 @@
     "post": {
       "body": "پروژه 2 درس شبکه های کامپیوتری"
     }
-  }
+  },
+
+  "ForbiddenPage": "HTTP/1.1 403 Forbidden\r\nContent-Length: 904\r\nContent-Type: text/html\r\nConnection:Closed\r\n\r\n<html>\n<style>\n@import url('https://fonts.googleapis.com/css?family=Press+Start+2P');\nhtml, body {\nwidth: 100%;\nheight: 100%;\nmargin: 0;\n}* {\nfont-family: 'Press Start 2P', cursive;\nbox-sizing: border-box;\n}\n#app {\npadding: 1rem;\nbackground: black;\ndisplay: flex;\nheight: 100%;\njustify-content: center;\nalign-items: center;\ncolor: #54fe55;\ntext-shadow: 0px 0px 10px;\nfont-size: 6rem;\nflex-direction: column;\n}\n#app .txt {\nfont-size: 1.8rem;\n}\n@keyframes blink {\n0% {\nopacity: 0;\n}\n49% {\nopacity: 0;\n}\n50% {\nopacity: 1;\n}\n100% {\nopacity: 1;\n}\n}\n.blink {\nanimation-name: blink;\nanimation-duration: 1s;\nanimation-iteration-count: infinite;\n}\n</style>\n<head>\n<title>forbidden</title>\n</head>\n<body>\n<div id=\"app\">\n<div>403</div>\n<div class=\"txt\">\nForbidden<span class=\"blink\">_</span>\n</div>\n</div>\n</body>\n</html>"
 }

@@ -11,7 +11,7 @@ from time import mktime
 from wsgiref.handlers import format_date_time
 import email.utils as eut
 from bs4 import BeautifulSoup
-
+import base64
 
 class Config:
 	def __init__(self):
@@ -29,6 +29,8 @@ class Config:
 		self.accounting_users = []
 		self.injection_enable = False
 		self.injection_body = ''
+		self.admin_email = "ami.ahmadi"
+		self.forbidden_page = ""
 		self.read_config()
 	
 	def read_config(self):
@@ -79,6 +81,8 @@ class Config:
 			if "post" in json_obj["HTTPInjection"]:
 				if "body" in json_obj["HTTPInjection"]["post"]:
 					self.injection_body = json_obj["HTTPInjection"]["post"]["body"]
+		if "ForbiddenPage" in json_obj:
+			self.forbidden_page = json_obj["ForbiddenPage"]
 	
 class Logger:
 	def __init__(self, enable):
@@ -393,7 +397,6 @@ def handle_request(local_reader, local_writer, client_addr):
 		is_completed_before = httpParser.is_header_completed()
 		received = local_reader.recv(50)
 		httpParser.add_data(received)
-		#####
 		if httpParser.is_header_completed() and not is_completed_before:
 			logger.log("client sent request to proxy with headers:\n")
 			logger.log_header(httpParser.httpreq)
@@ -409,13 +412,22 @@ def handle_request(local_reader, local_writer, client_addr):
 				local_writer.send(final_data)
 				return
 
-		#####
+		if not httpParser.httpreq == None:
+			host_name = httpParser.httpreq.get_value('Host').decode("utf-8")
+			if restricted(host_name):
+				local_writer.send(config.forbidden_page.encode("utf-8"))
+				if restriction_notify(host_name):
+					send_notification(b"ip address " + client_addr.encode("utf-8") + b" tried to send following request to " + host_name.encode("utf-8") + b"\n" + httpParser.httpreq.to_bytes() + httpParser.data)
+				local_reader.close()
+				return
+
 		if httpParser.is_header_completed() and not is_completed_before:
 			send_request(httpParser.httpreq, httpParser.httpreq.to_bytes() + httpParser.data, local_writer, client_addr)
 			logger.log("proxy sent response to client with headers:\n")
 			logger.log_header(httpParser.httpreq)
 		elif httpParser.is_header_completed():
 			send_request(httpParser.httpreq, received, local_writer, client_addr)
+	
 	local_reader.close()
 
 def handle_response(local_reader, local_writer, client_addr, host, context, if_modify=False):
@@ -430,7 +442,7 @@ def handle_response(local_reader, local_writer, client_addr, host, context, if_m
 			break
 		client_used(client_addr, received.__len__())
 		if not client_have_access(client_addr) and not if_modify:
-			#TODO local_write.send("حجم مصرفی شما به اتمام رسیده است.")
+			local_writer.send(config.forbidden_page.encode("utf-8"))
 			if not if_modify:
 				local_writer.close()
 			local_reader.close()
@@ -447,8 +459,7 @@ def handle_response(local_reader, local_writer, client_addr, host, context, if_m
 		if httpParser.is_header_completed() and not is_completed_before:
 			logger.log("server sent response to proxy with headers:\n")
 			logger.log_header(httpParser.httpresp)
-	
-	#####
+
 	if(if_modify == False and config.cache_enable == True and not httpParser.httpresp == None):
 		if not httpParser.httpresp.get_value("Pragma") == "no-cache":
 			expire_date = httpParser.httpresp.get_value("Expires")
@@ -458,7 +469,7 @@ def handle_response(local_reader, local_writer, client_addr, host, context, if_m
 			cache_object = CacheObject(host, context.decode("utf-8"), expire_date, get_date, httpParser.data, httpParser.httpresp.to_bytes())
 			cache.add_update_data(cache_object)
 			print("added " + host + " " + context.decode("utf-8") + " " + str(cache.data.__len__()))
-	#####
+
 	if config.injection_enable and (context == b'/' or context == b'/index.html' or context == b'/index.html#home'):
 		inject_navbar(httpParser)
 		if not if_modify:
@@ -484,6 +495,54 @@ def client_have_access(client_addr):
 		if user[0] == client_addr:
 			return user[2] > 0
 	return False
+
+def restricted(host_name):
+	if not config.restriction_enable:
+		return False
+	for target in config.restriction_targets:
+		if target[0] == host_name:
+			return True
+	return False
+
+def restriction_notify(host_name):
+	if not config.restriction_enable:
+		return False
+	for target in config.restriction_targets:
+		if target[0] == host_name:
+			return target[1] == 'true'
+	return False
+
+def send_notification(message):
+	print ("restriction email sent")
+	send_notification_mail (config.admin_email.encode("utf-8"), message)
+
+def send_notification_mail(receiver, message):
+	BUFFER_SIZE = 1024
+	SMTP_PORT = 25
+	mailserver = ("mail.ut.ac.ir", 25)
+	mail_server_socket = socket(AF_INET, SOCK_STREAM)
+	mail_server_socket.connect(mailserver)
+	recv = mail_server_socket.recv(BUFFER_SIZE)
+	mail_server_socket.send(b"EHLO ut.ac.ir\r\n")
+	mail_server_socket.recv(BUFFER_SIZE)
+	mail_server_socket.send(b"AUTH LOGIN\r\n")
+	mail_server_socket.recv(BUFFER_SIZE)
+	mail_server_socket.send(b"YW1pLmFobWFkaQ==\r\n")
+	mail_server_socket.recv(BUFFER_SIZE)
+	mail_server_socket.send(b"QEFtaXJobWkxMjM=\r\n")
+	mail_server_socket.recv(BUFFER_SIZE)
+	mail_server_socket.send(b"MAIL FROM:<ami.ahmadi@ut.ac.ir>\r\n")
+	mail_server_socket.recv(BUFFER_SIZE)
+	mail_server_socket.send(b"RCPT TO:<" + receiver + b"@ut.ac.ir>\r\n")
+	mail_server_socket.recv(BUFFER_SIZE)
+	mail_server_socket.send(b"DATA\r\n")
+	mail_server_socket.recv(BUFFER_SIZE)
+	mail_server_socket.send(b"Subject: Proxy Notification\r\n\r\n" )
+	mail_server_socket.send(message + b"\r\n.\r\n")
+	mail_server_socket.recv(BUFFER_SIZE)
+	mail_server_socket.send(b"QUIT\r\n")
+	mail_server_socket.recv(BUFFER_SIZE)
+	mail_server_socket.close()
 
 def send_request(header, message, local_writer, client_addr):
 	#request from browser for a server
