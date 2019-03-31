@@ -223,9 +223,6 @@ class CacheObject:
 		self.data = data
 		self.expire = expire
 		self.get_date = get_date
-	
-	def get_cached_data(self, data):
-		pass
 
 class Cache:
 	def __init__(self, max):
@@ -342,6 +339,7 @@ def inject_navbar(httpParser):
 	if decompress:
 		html = gzip_compress.compress(html.encode('utf-8')) + gzip_compress.flush()
 	httpParser.index_content = header + b'\r\n\r\n' + html
+	return html
 
 def parse_html_date(date):
 	date = date.decode('utf-8')
@@ -422,6 +420,7 @@ def handle_request(local_reader, local_writer, client_addr):
 				return
 
 		if httpParser.is_header_completed() and not is_completed_before:
+			httpParser.httpreq.change_header('Accept-Encoding', 'identity')
 			send_request(httpParser.httpreq, httpParser.httpreq.to_bytes() + httpParser.data, local_writer, client_addr)
 			logger.log("proxy sent response to client with headers:\n")
 			logger.log_header(httpParser.httpreq)
@@ -460,6 +459,7 @@ def handle_response(local_reader, local_writer, client_addr, host, context, if_m
 			logger.log("server sent response to proxy with headers:\n")
 			logger.log_header(httpParser.httpresp)
 
+	cache_object = None
 	if(if_modify == False and config.cache_enable == True and not httpParser.httpresp == None):
 		if not httpParser.httpresp.get_value("Pragma") == "no-cache":
 			expire_date = httpParser.httpresp.get_value("Expires")
@@ -468,11 +468,13 @@ def handle_response(local_reader, local_writer, client_addr, host, context, if_m
 			get_date = format_date_time(stamp).encode('utf-8')
 			cache_object = CacheObject(host, context.decode("utf-8"), expire_date, get_date, httpParser.data, httpParser.httpresp.to_bytes())
 			cache.add_update_data(cache_object)
-			print("added " + host + " " + context.decode("utf-8") + " " + str(cache.data.__len__()))
+			print("added " + host + context.decode("utf-8") + " " + str(cache.data.__len__()))
 
 	if config.injection_enable and (context == b'/' or context == b'/index.html' or context == b'/index.html#home'):
-		inject_navbar(httpParser)
+		html = inject_navbar(httpParser)
 		if not if_modify:
+			if not cache_object == None:
+				cache_object.data = html
 			local_writer.send(httpParser.index_content)
 	if not if_modify:
 		local_writer.close()
