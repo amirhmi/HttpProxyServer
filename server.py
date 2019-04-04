@@ -99,8 +99,7 @@ class Logger:
 				f.write(message)
 				f.write('\n')
 		except:
-			print("cannot write logs to file!")
-	
+			pass
 	def log_header(self, header):
 		if not self.enable:
 			return
@@ -111,7 +110,7 @@ class Logger:
 				f.write('-----------------------------------------\n')
 				f.write('\n')
 		except:
-			print("cannot write logs to file!")
+			pass
 
 class HttpRequestHeaderData:
 	def __init__(self, header):
@@ -339,6 +338,7 @@ def inject_navbar(httpParser):
 	if decompress:
 		html = gzip_compress.compress(html.encode('utf-8')) + gzip_compress.flush()
 	httpParser.index_content = header + b'\r\n\r\n' + html
+	logger.log("html navbar injected")
 	return html
 
 def parse_html_date(date):
@@ -405,7 +405,7 @@ def handle_request(local_reader, local_writer, client_addr):
 			context = httpParser.httpreq.address.decode("utf-8")
 			found, cache_object = cache.find_and_get_data(host, context)
 			if found:
-				print("found " + host + " " + context)
+				logger.log("cache: found " + host + context)
 				final_data = get_cached_data(cache_object, httpParser, context)
 				local_writer.send(final_data)
 				return
@@ -415,7 +415,12 @@ def handle_request(local_reader, local_writer, client_addr):
 			if restricted(host_name):
 				local_writer.send(config.forbidden_page.encode("utf-8"))
 				if restriction_notify(host_name):
-					send_notification(b"ip address " + client_addr.encode("utf-8") + b" tried to send following request to " + host_name.encode("utf-8") + b"\n" + httpParser.httpreq.to_bytes() + httpParser.data)
+					notification = b"ip address " + client_addr.encode("utf-8") + b" tried to send following request to " + host_name.encode("utf-8") + b"\n" + httpParser.httpreq.to_bytes() + httpParser.data
+					send_mail_handler = threading.Thread(
+						target=send_notification,
+						args=(notification, )
+					)
+					send_mail_handler.start()
 				local_reader.close()
 				return
 
@@ -468,7 +473,7 @@ def handle_response(local_reader, local_writer, client_addr, host, context, if_m
 			get_date = format_date_time(stamp).encode('utf-8')
 			cache_object = CacheObject(host, context.decode("utf-8"), expire_date, get_date, httpParser.data, httpParser.httpresp.to_bytes())
 			cache.add_update_data(cache_object)
-			print("added " + host + context.decode("utf-8") + " " + str(cache.data.__len__()))
+			logger.log("cache: added " + host + context.decode("utf-8") + " cache-size: " + str(cache.data.__len__()))
 
 	if config.injection_enable and (context == b'/' or context == b'/index.html' or context == b'/index.html#home'):
 		html = inject_navbar(httpParser)
@@ -515,8 +520,8 @@ def restriction_notify(host_name):
 	return False
 
 def send_notification(message):
-	print ("restriction email sent")
 	send_notification_mail (config.admin_email.encode("utf-8"), message)
+	logger.log ("restriction email sent")
 
 def send_notification_mail(receiver, message):
 	BUFFER_SIZE = 1024
