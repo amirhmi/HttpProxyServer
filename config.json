@@ -2,7 +2,7 @@
   "port": 8888,
 
   "logging": {
-    "enable": false,
+    "enable": true,
     "logFile": "proxy.log"
   },
 
@@ -35,7 +35,7 @@
 		"users":[
 			{
 				"IP": "127.0.0.1",
-				"volume":"8000" 
+				"volume":"1000000" 
 			}
 		]
 	},
