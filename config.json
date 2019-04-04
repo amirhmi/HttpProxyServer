@@ -7,7 +7,7 @@
   },
 
   "caching": {
-    "enable": false,
+    "enable": true,
 	 "size": 200
   },
 

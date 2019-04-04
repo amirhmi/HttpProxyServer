@@ -39,7 +39,7 @@ class Config:
 				content = f.read()
 		except:
 			return
-		json_obj = json.loads(content.decode("utf-8"))
+		json_obj = json.loads(content.decode("utf-8", errors='ignore'))
 		if "port" in json_obj:
 			self.proxy_port = json_obj["port"]
 		if "logging" in json_obj:
@@ -131,21 +131,21 @@ class HttpRequestHeaderData:
 	
 	def get_value (self, key):
 		for line in self.header:
-			if line.split(b':')[0].decode("utf-8").strip() == key:
+			if line.split(b':')[0].decode("utf-8", errors='ignore').strip() == key:
 				return line.split(b' ', 1)[1]
 		return None
 	
 	def remove_header (self, key):
 		for i in range(self.header.__len__()):
 			line = self.header[i]
-			if line.split(b':')[0].decode("utf-8").strip() == key:
+			if line.split(b':')[0].decode("utf-8", errors='ignore').strip() == key:
 				self.header.remove(line)
 				return
 	
 	def change_header (self, key, value):
 		for i in range(self.header.__len__()):
 			line = self.header[i]
-			if line.split(b':')[0].decode("utf-8").strip() == key:
+			if line.split(b':')[0].decode("utf-8", errors='ignore').strip() == key:
 				self.header[i] = key.encode("utf-8") + b': ' + value.encode("utf-8")
 				return
 	
@@ -164,12 +164,12 @@ class HttpRequestHeaderData:
 
 	def to_str(self):
 		ret = ''
-		ret += self.method.decode("utf-8") + ' '
-		ret += self.address.decode("utf-8") + ' '
-		ret += self.http_type.decode("utf-8")
+		ret += self.method.decode("utf-8", errors='ignore') + ' '
+		ret += self.address.decode("utf-8", errors='ignore') + ' '
+		ret += self.http_type.decode("utf-8", errors='ignore')
 		ret += '\n'
 		for line in self.header:
-			ret += line.decode("utf-8") + '\n'
+			ret += line.decode("utf-8", errors='ignore') + '\n'
 		return ret
 
 class HttpResponsetHeaderData:
@@ -191,7 +191,7 @@ class HttpResponsetHeaderData:
 	
 	def get_value (self, key):
 		for line in self.header:
-			if line.split(b':')[0].decode("utf-8").strip() == key:
+			if line.split(b':')[0].decode("utf-8", errors='ignore').strip() == key:
 				return line.split(b' ', 1)[1]
 		return None
 	
@@ -207,12 +207,12 @@ class HttpResponsetHeaderData:
 	
 	def to_str(self):
 		ret = ''
-		ret += self.http_type.decode("utf-8") + ' '
-		ret += self.status_code.decode("utf-8") + ' '
-		ret += self.status.decode("utf-8")
+		ret += self.http_type.decode("utf-8", errors='ignore') + ' '
+		ret += self.status_code.decode("utf-8", errors='ignore') + ' '
+		ret += self.status.decode("utf-8", errors='ignore')
 		ret += '\n'
 		for line in self.header:
-			ret += line.decode("utf-8") + '\n'
+			ret += line.decode("utf-8", errors='ignore') + '\n'
 		return ret
 
 class CacheObject:
@@ -342,7 +342,7 @@ def inject_navbar(httpParser):
 	return html
 
 def parse_html_date(date):
-	date = date.decode('utf-8')
+	date = date.decode("utf-8", errors='ignore')
 	return datetime.datetime(*eut.parsedate(date)[:6]).timestamp()
 
 def get_cached_data(cache_object, httpParser, context):
@@ -351,7 +351,7 @@ def get_cached_data(cache_object, httpParser, context):
 		final_data = cache_object.header + cache_object.data
 	else:
 		httpParser.httpreq.header.insert(-1, b'If-Modified-Since: ' + cache_object.get_date)
-		host = httpParser.httpreq.get_value('Host').decode("utf-8")
+		host = httpParser.httpreq.get_value('Host').decode("utf-8", errors='ignore')
 		modified_data = send_if_modified_since(httpParser, host, context)
 		if not modified_data == None:
 			final_data = modified_data
@@ -393,6 +393,8 @@ def handle_request(local_reader, local_writer, client_addr):
 	httpParser = HttpParser()
 	while not httpParser.is_complete:
 		is_completed_before = httpParser.is_header_completed()
+		if local_reader.fileno() == -1:
+			return
 		received = local_reader.recv(50)
 		httpParser.add_data(received)
 		if httpParser.is_header_completed() and not is_completed_before:
@@ -401,8 +403,8 @@ def handle_request(local_reader, local_writer, client_addr):
 			change_request(httpParser.httpreq, httpParser.data)
 
 		if config.cache_enable and httpParser.is_header_completed():
-			host = httpParser.httpreq.get_value('Host').decode("utf-8")
-			context = httpParser.httpreq.address.decode("utf-8")
+			host = httpParser.httpreq.get_value('Host').decode("utf-8", errors='ignore')
+			context = httpParser.httpreq.address.decode("utf-8", errors='ignore')
 			found, cache_object = cache.find_and_get_data(host, context)
 			if found:
 				logger.log("cache: found " + host + context)
@@ -411,7 +413,7 @@ def handle_request(local_reader, local_writer, client_addr):
 				return
 
 		if not httpParser.httpreq == None:
-			host_name = httpParser.httpreq.get_value('Host').decode("utf-8")
+			host_name = httpParser.httpreq.get_value('Host').decode("utf-8", errors='ignore')
 			if restricted(host_name):
 				local_writer.send(config.forbidden_page.encode("utf-8"))
 				if restriction_notify(host_name):
@@ -456,6 +458,8 @@ def handle_response(local_reader, local_writer, client_addr, host, context, if_m
 			httpParser.index_content += received
 		else:
 			if not if_modify:
+				if local_writer.fileno() == -1:
+					return
 				local_writer.send(received)
 		
 		httpParser.add_data(received)
@@ -471,9 +475,9 @@ def handle_response(local_reader, local_writer, client_addr, host, context, if_m
 			now = datetime.datetime.now()
 			stamp = mktime(now.timetuple())
 			get_date = format_date_time(stamp).encode('utf-8')
-			cache_object = CacheObject(host, context.decode("utf-8"), expire_date, get_date, httpParser.data, httpParser.httpresp.to_bytes())
+			cache_object = CacheObject(host, context.decode("utf-8", errors='ignore'), expire_date, get_date, httpParser.data, httpParser.httpresp.to_bytes())
 			cache.add_update_data(cache_object)
-			logger.log("cache: added " + host + context.decode("utf-8") + " cache-size: " + str(cache.data.__len__()))
+			logger.log("cache: added " + host + context.decode("utf-8", errors='ignore') + " cache-size: " + str(cache.data.__len__()))
 
 	if config.injection_enable and (context == b'/' or context == b'/index.html' or context == b'/index.html#home'):
 		html = inject_navbar(httpParser)
@@ -554,7 +558,7 @@ def send_notification_mail(receiver, message):
 def send_request(header, message, local_writer, client_addr):
 	#request from browser for a server
 	request_socket = socket(AF_INET, SOCK_STREAM)
-	dest_addr = header.get_value('Host').decode("utf-8")
+	dest_addr = header.get_value('Host').decode("utf-8", errors='ignore')
 	connection_addr = (dest_addr, 80)
 	logger.log("proxy opening connection to server " + dest_addr + "...")
 	request_socket.connect(connection_addr)
