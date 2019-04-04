@@ -1,31 +1,31 @@
+import logging
+import threading
 import time
 
 class Logger:
 	def __init__(self, enable, config):
 		self.enable = enable
 		self.config = config
+		logging.basicConfig(filename=self.config.log_file, level=logging.INFO, format='[%(asctime)s] %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p')
+		self.sem = threading.Semaphore()
 
 	def log(self, message):
 		if not self.enable:
 			return
 		try:
-			with open(self.config.log_file, 'a+') as f:
-				f.write('[')
-				f.write(time.asctime(time.localtime(time.time())))
-				f.write(']')
-				f.write(message)
-				f.write('\n')
+			self.sem.acquire()
+			logging.info(message)
+			self.sem.release()
 		except:
-			print("cannot write logs to file!")
+			self.sem.release()
 
 	def log_header(self, header):
 		if not self.enable:
 			return
 		try:
-			with open(self.config.log_file, 'a+') as f:
-				f.write('-----------------------------------------\n')
-				f.write(header.to_str())
-				f.write('-----------------------------------------\n')
-				f.write('\n')
+			message = 'proxy sent response to client with headers:\n-----------------------------------------\n' + header.to_str() + '-----------------------------------------'
+			self.sem.acquire()			
+			logging.info(message)
+			self.sem.release()
 		except:
-			print("cannot write logs to file!")
+			self.sem.release()

@@ -112,7 +112,6 @@ def send_if_modified_since(httpParser, host, context):
 		httpParser.httpreq.remove_header("If-Modified-Since")
 		header = httpParser.httpreq.to_bytes()
 		request_socket.send(header)
-		logger.log("proxy sent request to server with headers:\n")
 		logger.log_header(header)
 		ret = handle_response(request_socket, None, host, host, context, True)
 		return ret
@@ -157,7 +156,6 @@ def handle_request(local_reader, local_writer, client_addr):
 		if httpParser.is_header_completed() and not is_completed_before:
 			httpParser.httpreq.change_header('Accept-Encoding', 'identity')
 			send_request(httpParser.httpreq, httpParser.httpreq.to_bytes() + httpParser.data, local_writer, client_addr)
-			logger.log("proxy sent response to client with headers:\n")
 			logger.log_header(httpParser.httpreq)
 		elif httpParser.is_header_completed():
 			send_request(httpParser.httpreq, received, local_writer, client_addr)
@@ -290,7 +288,6 @@ def send_request(header, message, local_writer, client_addr):
 	request_socket.connect(connection_addr)
 	logger.log("connection opened")
 	request_socket.send(message)
-	logger.log("proxy sent request to server with headers:\n")
 	logger.log_header(header)
 	handle_response(request_socket, local_writer, client_addr, dest_addr, header.address)
 
