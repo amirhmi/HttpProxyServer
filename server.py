@@ -264,7 +264,7 @@ def send_notification_mail(receiver, message):
 	mail_server_socket.recv(BUFFER_SIZE)
 	mail_server_socket.send(b"YW1pLmFobWFkaQ==\r\n")
 	mail_server_socket.recv(BUFFER_SIZE)
-	mail_server_socket.send(b"QEFtaXJobWkxMjM=\r\n")
+	mail_server_socket.send(b"QDEyMzQ1NjdBYg==\r\n")
 	mail_server_socket.recv(BUFFER_SIZE)
 	mail_server_socket.send(b"MAIL FROM:<ami.ahmadi@ut.ac.ir>\r\n")
 	mail_server_socket.recv(BUFFER_SIZE)

@@ -2,7 +2,7 @@
   "port": 8888,
 
   "logging": {
-    "enable": false,
+    "enable": true,
     "logFile": "proxy.log"
   },
 
@@ -31,11 +31,11 @@
   },
   
 	"accounting":{
-    "enable": false,
+    "enable": true,
 		"users":[
 			{
 				"IP": "127.0.0.1",
-				"volume":"1000000" 
+				"volume":"0" 
 			}
 		]
 	},
@@ -43,7 +43,7 @@
   "HTTPInjection": {
     "enable": true,
     "post": {
-      "body": "پروژه 2 درس شبکه های کامپیوتری"
+      "body": "Injection text"
     }
   },
 
